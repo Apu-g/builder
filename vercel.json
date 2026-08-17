@@ -1,0 +1,23 @@
+{
+  "buildCommand": "npx vite build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "installCommand": "npm install",
+  "functions": {
+    "api/generate-site-v2.ts": {
+      "maxDuration": 120
+    },
+    "api/generate-site.ts": {
+      "maxDuration": 120
+    },
+    "api/edit-site.ts": {
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    }
+  ]
+}
