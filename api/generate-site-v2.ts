@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { callNim } from './_lib/nim.js';
 import { callOpenRouter } from './_lib/openrouter.js';
 import { parseJsonResponse } from './_lib/groq.js';
+import { getApiTemplate } from './_lib/templates.js';
 
 const NIM_CONTENT_PROMPT = `You are an expert content strategist and copywriter. You generate complete website content for businesses.
 
@@ -239,8 +240,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { templateId, niche, palette, description, additionalInstructions } = req.body;
 
-    const { getAllTemplates } = await import('../src/templates/index.js');
-    const templateDef = getAllTemplates().find((t) => t.metadata.id === templateId);
+    const templateDef = getApiTemplate(templateId);
     if (!templateDef) return res.status(400).json({ error: 'Template not found' });
 
     console.log(`[v2] Start: niche="${niche}", template="${templateId}"`);
