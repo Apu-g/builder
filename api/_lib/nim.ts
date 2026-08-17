@@ -1,4 +1,8 @@
-export async function callNim(systemPrompt: string, userMessage: string): Promise<string> {
+export async function callNim(
+  systemPrompt: string,
+  userMessage: string,
+  options?: { temperature?: number; maxTokens?: number }
+): Promise<string> {
   const apiKey = process.env.NVIDIA_NIM_API_KEY || '';
   const baseUrl = process.env.NVIDIA_NIM_BASE_URL || 'https://integrate.api.nvidia.com/v1';
   const model = process.env.NVIDIA_NIM_MODEL || 'meta/llama-3.1-70b-instruct';
@@ -19,8 +23,8 @@ export async function callNim(systemPrompt: string, userMessage: string): Promis
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userMessage },
       ],
-      temperature: 0.7,
-      max_tokens: 4096,
+      temperature: options?.temperature ?? 0.7,
+      max_tokens: options?.maxTokens ?? 4096,
     }),
   });
 
