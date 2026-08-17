@@ -24,7 +24,7 @@ export async function callGroq(
         { role: 'user', content: userMessage },
       ],
       temperature: options?.temperature ?? 0.7,
-      max_tokens: options?.maxTokens ?? 4096,
+      max_completion_tokens: options?.maxTokens ?? 4096,
     }),
   });
 
