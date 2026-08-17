@@ -1,97 +1,125 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { callOpenRouter } from './_lib/openrouter.js';
 import { callGroq, parseJsonResponse } from './_lib/groq.js';
 import { fetchNicheImages } from './_lib/images.js';
 
-const ANALYSIS_PROMPT = `You are an expert business analyst. Extract business details from a user's description.
+// ============================================================
+// STEP 1: Business Analysis (small prompt, ~300 tokens output)
+// ============================================================
+const ANALYSIS_PROMPT = `You are a business analyst. Extract details from a NICHE and DESCRIPTION.
 
-The user will provide a NICHE (industry category) and a DESCRIPTION of their business.
-
-CRITICAL: The NICHE field tells you the industry (e.g., "law firm", "coffee shop", "gym"). Always use the NICHE as the primary industry indicator. The DESCRIPTION adds details about that specific business.
+The NICHE is the INDUSTRY (e.g., "law firm", "coffee shop", "gym").
+The DESCRIPTION has details about the specific business.
 
 Return ONLY valid JSON:
 {
-  "businessName": "exact name if given, or create one fitting the niche",
-  "tagline": "punchy 3-8 word tagline",
+  "businessName": "name from description, or create one fitting the niche",
+  "tagline": "3-8 word tagline",
   "tone": "professional|casual|luxury|playful|minimal|bold",
-  "keywords": ["k1","k2","k3","k4","k5"],
-  "subNiche": "specific sub-niche within the industry",
-  "audience": "target customer description",
-  "uniqueSellingPoint": "what makes this business special",
+  "subNiche": "specific sub-niche",
+  "uniqueSellingPoint": "what makes this different",
   "keyProducts": ["product1","product2","product3"]
 }
+Return ONLY the JSON.`;
 
-RULES:
-- The NICHE is the INDUSTRY. If niche="law firm", this is a LAW FIRM regardless of what else the description says.
-- If niche="coffee shop", this is a COFFEE SHOP.
-- Extract the exact business name from description if given
-- Keywords should be niche-specific search terms
-- Return ONLY the JSON`;
-
-const CONTENT_GENERATION_PROMPT = `You are an elite web copywriter. Generate website content for a SPECIFIC business in a SPECIFIC niche.
-
-OUTPUT: Return ONLY valid JSON with "site" and "sections" keys. No markdown, no code fences.
-
-The JSON structure MUST be:
+// ============================================================
+// STEP 2: Site Content (~500 tokens output)
+// ============================================================
+const SITE_CONTENT_PROMPT = `Generate website HEADER content for a business. Return ONLY valid JSON:
 {
-  "site": {
-    "brandName": "Business Name",
-    "tagline": "Tagline",
-    "description": "2-3 sentences about the business",
-    "ctaPrimary": "Action button text",
-    "ctaSecondary": "Secondary button text"
-  },
-  "sections": {
-    // Match the section IDs from the template structure provided
-    // Each section has an "id" and content fields
-  }
+  "brandName": "Business Name",
+  "tagline": "Compelling tagline",
+  "description": "2-3 sentence description of the business",
+  "ctaPrimary": "Action button text specific to the niche",
+  "ctaSecondary": "Secondary button text"
+}
+CTAs must be niche-specific (e.g., law firm: "Schedule Consultation"/"Our Practice Areas", gym: "Start Free Trial"/"See Programs", restaurant: "Reserve a Table"/"View Menu", coffee: "Order Now"/"Our Menu", photography: "Book a Session"/"View Portfolio").
+Return ONLY the JSON.`;
+
+// ============================================================
+// STEP 3: Section Content (~800 tokens per section)
+// ============================================================
+function sectionPrompt(sectionId: string, fieldTypeMap: Record<string, string>): string {
+  const fields = Object.entries(fieldTypeMap)
+    .map(([k, v]) => `  "${k}": "${v}"`)
+    .join('\n');
+
+  return `Generate the "${sectionId}" section content for a website. Return ONLY valid JSON:
+{
+${fields}
+}
+Rules:
+- Each text field must be real, niche-specific content (no placeholders)
+- If a field says "string[]" it needs an array of strings
+- If a field says "string" it needs a single string
+- IDs should be short slugs
+- Content should be authentic and professional
+Return ONLY the JSON.`;
 }
 
-CRITICAL RULES:
-1. Every text field must be NEW content specific to THIS business and THIS niche
-2. Match the section IDs and field names from the template structure exactly
-3. CTAs must be niche-specific verbs (not generic "Get Started")
-4. Content must reference the business's actual niche, services, and offerings
-5. NEVER use placeholder text or lorem ipsum`;
-
-// Extract a condensed skeleton of the template structure (just field names and types)
-function extractStructure(obj: unknown, depth = 0): unknown {
-  if (depth > 4) return '...';
-  if (obj === null || obj === undefined) return null;
-  if (typeof obj === 'string') return 'string';
-  if (typeof obj === 'number') return 'number';
-  if (typeof obj === 'boolean') return 'boolean';
+// ============================================================
+// Condensed structure extractor
+// ============================================================
+function extractFieldMap(obj: unknown, prefix = ''): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (obj === null || obj === undefined) return result;
+  if (typeof obj === 'string') { result[prefix || 'value'] = 'string'; return result; }
+  if (typeof obj === 'number') { result[prefix || 'value'] = 'number'; return result; }
+  if (typeof obj === 'boolean') { result[prefix || 'value'] = 'boolean'; return result; }
   if (Array.isArray(obj)) {
-    if (obj.length === 0) return [];
-    return [extractStructure(obj[0], depth + 1)];
-  }
-  if (typeof obj === 'object') {
-    const result: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
-      result[key] = extractStructure(val, depth + 1);
+    if (obj.length > 0 && typeof obj[0] === 'object' && obj[0] !== null) {
+      result[prefix || 'items'] = 'object[]';
+    } else {
+      result[prefix || 'items'] = 'string[]';
     }
     return result;
   }
-  return obj;
+  if (typeof obj === 'object') {
+    for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      if (typeof val === 'string') result[path] = 'string';
+      else if (typeof val === 'number') result[path] = 'number';
+      else if (typeof val === 'boolean') result[path] = 'boolean';
+      else if (Array.isArray(val)) {
+        if (val.length > 0 && typeof val[0] === 'object' && val[0] !== null) result[path] = 'object[]';
+        else result[path] = 'string[]';
+      }
+      else if (typeof val === 'object' && val !== null) {
+        const nested = extractFieldMap(val, path);
+        Object.assign(result, nested);
+      }
+    }
+  }
+  return result;
 }
 
-// Lazy-load templates to avoid import issues at module level
-async function getTemplateDef(templateId: string) {
-  const { getAllTemplates } = await import('../src/templates/index.js');
-  return getAllTemplates().find((t) => t.metadata.id === templateId);
+function extractSections(obj: unknown): Record<string, Record<string, string>> {
+  const result: Record<string, Record<string, string>> = {};
+  if (typeof obj !== 'object' || obj === null) return result;
+  for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
+    if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+      result[key] = extractFieldMap(val);
+    }
+  }
+  return result;
 }
 
-// Niche-specific CTA mappings
+// ============================================================
+// Smart fallback (no AI needed)
+// ============================================================
 const NICHE_CTAS: Record<string, { primary: string; secondary: string }> = {
-  'law firm': { primary: 'Schedule Consultation', secondary: 'Our Practice Areas' },
-  'coffee shop': { primary: 'Order Now', secondary: 'View Menu' },
+  'law': { primary: 'Schedule Consultation', secondary: 'Our Practice Areas' },
+  'coffee': { primary: 'Order Now', secondary: 'View Menu' },
   'restaurant': { primary: 'Reserve a Table', secondary: 'View Menu' },
   'gym': { primary: 'Start Free Trial', secondary: 'See Programs' },
-  'photography': { primary: 'Book a Session', secondary: 'View Portfolio' },
-  'architecture': { primary: 'Start Your Project', secondary: 'See Our Work' },
-  'ai startup': { primary: 'Get Early Access', secondary: 'See How It Works' },
-  'interior design': { primary: 'Book Consultation', secondary: 'View Projects' },
+  'fitness': { primary: 'Start Free Trial', secondary: 'See Programs' },
+  'photo': { primary: 'Book a Session', secondary: 'View Portfolio' },
+  'architect': { primary: 'Start Your Project', secondary: 'See Our Work' },
+  'ai': { primary: 'Get Early Access', secondary: 'See How It Works' },
+  'interior': { primary: 'Book Consultation', secondary: 'View Projects' },
   'fashion': { primary: 'Shop Collection', secondary: 'Our Story' },
-  'default': { primary: 'Get Started', secondary: 'Learn More' },
+  'medical': { primary: 'Book Appointment', secondary: 'Our Services' },
+  'health': { primary: 'Book Appointment', secondary: 'Our Services' },
 };
 
 function getNicheCtas(niche: string): { primary: string; secondary: string } {
@@ -99,10 +127,9 @@ function getNicheCtas(niche: string): { primary: string; secondary: string } {
   for (const [key, ctas] of Object.entries(NICHE_CTAS)) {
     if (lower.includes(key)) return ctas;
   }
-  return NICHE_CTAS.default;
+  return { primary: 'Get Started', secondary: 'Learn More' };
 }
 
-// Build rich fallback content from analysis + niche
 function buildSmartFallback(
   analysis: Record<string, unknown>,
   description: string,
@@ -110,7 +137,7 @@ function buildSmartFallback(
   templateDef: { defaultContent: Record<string, unknown>; metadata: { sections: string[] } }
 ): Record<string, unknown> {
   const brandName = (analysis.businessName as string) || niche.split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-  const tagline = (analysis.tagline as string) || `${brandName} — Excellence Since Day One.`;
+  const tagline = (analysis.tagline as string) || `${brandName} — Excellence in ${niche}.`;
   const subNiche = (analysis.subNiche as string) || niche;
   const usp = (analysis.uniqueSellingPoint as string) || '';
   const products = (analysis.keyProducts as string[]) || [];
@@ -119,69 +146,85 @@ function buildSmartFallback(
   const site = {
     brandName,
     tagline,
-    description: description || `${brandName} is a trusted ${subNiche} delivering exceptional quality and service. ${usp ? `What sets us apart: ${usp}.` : ''}`,
+    description: description || `${brandName} is a trusted ${subNiche} dedicated to excellence. ${usp ? `What sets us apart: ${usp}.` : ''}`,
     ctaPrimary: ctas.primary,
     ctaSecondary: ctas.secondary,
   };
 
-  // Deep-clone sections and replace text fields with niche-specific content
   const sections = JSON.parse(JSON.stringify(templateDef.defaultContent.sections || {})) as Record<string, unknown>;
 
-  function fillSection(obj: Record<string, unknown>, path: string) {
+  function fillSection(obj: Record<string, unknown>) {
     for (const [key, val] of Object.entries(obj)) {
-      const fieldPath = `${path}.${key}`;
       if (typeof val === 'string') {
         const lower = val.toLowerCase();
-        // Replace placeholder/generic strings with niche-specific content
-        if (lower.includes('lorem') || lower.includes('placeholder') || lower.includes('default') || lower.includes('sample') || lower.includes('your ')) {
-          obj[key] = generateFieldContent(key, niche, subNiche, brandName, products);
-        }
-        // Replace brand names from template defaults
-        if (lower.includes('roast') || lower.includes('coffee') || lower.includes('brew')) {
-          if (!niche.toLowerCase().includes('coffee')) {
-            obj[key] = generateFieldContent(key, niche, subNiche, brandName, products);
+        if (lower.includes('lorem') || lower.includes('placeholder') || lower.includes('default') || lower.includes('sample') || lower.includes('your ') || lower.includes('roast') || lower.includes('brew') || lower.includes('espresso')) {
+          if (!niche.toLowerCase().includes('coffee') && (lower.includes('roast') || lower.includes('brew') || lower.includes('espresso'))) {
+            obj[key] = `${brandName} — ${subNiche}`;
+          } else if (lower.includes('lorem') || lower.includes('placeholder') || lower.includes('default') || lower.includes('sample') || lower.includes('your ')) {
+            obj[key] = `${brandName} delivers exceptional ${subNiche} services.`;
           }
         }
       } else if (Array.isArray(val)) {
-        val.forEach((item, i) => {
-          if (typeof item === 'object' && item !== null) {
-            fillSection(item as Record<string, unknown>, `${fieldPath}[${i}]`);
-          }
+        val.forEach((item) => {
+          if (typeof item === 'object' && item !== null) fillSection(item as Record<string, unknown>);
         });
       } else if (typeof val === 'object' && val !== null) {
-        fillSection(val as Record<string, unknown>, fieldPath);
+        fillSection(val as Record<string, unknown>);
       }
     }
   }
 
-  for (const [sectionId, sectionData] of Object.entries(sections)) {
+  for (const [, sectionData] of Object.entries(sections)) {
     if (typeof sectionData === 'object' && sectionData !== null) {
-      fillSection(sectionData as Record<string, unknown>, sectionId);
+      fillSection(sectionData as Record<string, unknown>);
     }
   }
 
   return { site, sections };
 }
 
-function generateFieldContent(fieldName: string, niche: string, subNiche: string, brandName: string, products: string[]): string {
-  const lower = fieldName.toLowerCase();
-
-  if (lower === 'title' || lower === 'heading') return `${brandName} — Your Trusted ${subNiche}`;
-  if (lower === 'subtitle') return `Delivering exceptional ${niche} services with passion and precision.`;
-  if (lower === 'description' || lower === 'text' || lower === 'content') {
-    return `At ${brandName}, we specialize in ${subNiche}. Our team is dedicated to providing the highest quality ${niche} experience. ${products.length > 0 ? `From ${products.slice(0, 2).join(' to ')}, we deliver excellence.` : 'We bring expertise and passion to everything we do.'}`;
+// ============================================================
+// Multi-provider call (OpenRouter primary, Groq fallback)
+// ============================================================
+async function callAI(
+  systemPrompt: string,
+  userMessage: string,
+  options: { temperature?: number; maxTokens?: number } = {}
+): Promise<string> {
+  // Try OpenRouter first
+  try {
+    return await callOpenRouter(systemPrompt, userMessage, {
+      temperature: options.temperature,
+      maxTokens: options.maxTokens,
+      model: 'meta-llama/llama-3.3-70b-instruct:free',
+    });
+  } catch (err) {
+    console.warn('[v2] OpenRouter failed, trying Groq:', (err as Error).message);
   }
-  if (lower === 'name') return brandName;
-  if (lower === 'bio') return `A passionate ${niche} professional with years of experience in ${subNiche}.`;
-  if (lower === 'label') return subNiche;
-  if (lower.includes('feature')) return `Professional ${niche} services`;
-  if (lower.includes('service')) return `Our ${subNiche} expertise`;
-  if (lower.includes('stat') || lower.includes('number')) return `${Math.floor(Math.random() * 20) + 5}+`;
-  if (lower.includes('stat') && lower.includes('label')) return `Years of Experience`;
 
-  return `${brandName} — ${subNiche}`;
+  // Fallback to Groq
+  try {
+    return await callGroq(systemPrompt, userMessage, {
+      temperature: options.temperature,
+      maxTokens: options.maxTokens,
+    });
+  } catch (err) {
+    console.warn('[v2] Groq also failed:', (err as Error).message);
+    throw err;
+  }
 }
 
+// ============================================================
+// Lazy-load templates
+// ============================================================
+async function getTemplateDef(templateId: string) {
+  const { getAllTemplates } = await import('../src/templates/index.js');
+  return getAllTemplates().find((t) => t.metadata.id === templateId);
+}
+
+// ============================================================
+// Main handler
+// ============================================================
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -195,98 +238,83 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Template not found' });
     }
 
-    console.log(`[v2] Generating for niche="${niche}", template="${templateId}"`);
+    console.log(`[v2] Generating: niche="${niche}", template="${templateId}"`);
 
-    // Step 1: Business analysis
-    const analysisResult = await callGroq(
-      ANALYSIS_PROMPT,
-      `NICHE: ${niche}
-DESCRIPTION: ${description}
-${additionalInstructions ? `ADDITIONAL: ${additionalInstructions}` : ''}
-COLOR PALETTE: ${palette.name}`,
-      { temperature: 0.7, maxTokens: 512 }
-    ).catch((err: Error) => {
-      console.error('[v2] Analysis error:', err.message);
-      return null;
-    });
-
+    // ── STEP 1: Business Analysis ──
     let analysis: Record<string, unknown>;
-    if (analysisResult) {
-      try {
-        analysis = parseJsonResponse(analysisResult);
-      } catch {
-        analysis = buildFallbackAnalysis(niche, description);
-      }
-    } else {
-      analysis = buildFallbackAnalysis(niche, description);
+    try {
+      const analysisResult = await callAI(
+        ANALYSIS_PROMPT,
+        `NICHE: ${niche}\nDESCRIPTION: ${description}\n${additionalInstructions ? `EXTRA: ${additionalInstructions}` : ''}`,
+        { temperature: 0.7, maxTokens: 512 }
+      );
+      analysis = parseJsonResponse(analysisResult);
+      console.log('[v2] Step 1 done:', analysis.businessName);
+    } catch (err) {
+      console.error('[v2] Step 1 failed:', (err as Error).message);
+      analysis = {
+        businessName: niche.split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+        tagline: `Your Trusted ${niche}.`,
+        tone: 'professional',
+        subNiche: niche,
+        uniqueSellingPoint: description.slice(0, 150),
+        keyProducts: [],
+      };
     }
 
-    console.log('[v2] Analysis:', analysis.businessName, '|', analysis.subNiche);
+    // ── STEP 2: Site Content ──
+    let siteContent: { brandName: string; tagline: string; description: string; ctaPrimary: string; ctaSecondary: string };
+    try {
+      const siteResult = await callAI(
+        SITE_CONTENT_PROMPT,
+        `BUSINESS: ${analysis.businessName}\nNICHE: ${niche}\nSUB-NICHE: ${analysis.subNiche}\nTONE: ${analysis.tone}\nDESCRIPTION: ${description}\n${analysis.uniqueSellingPoint ? `USP: ${analysis.uniqueSellingPoint}` : ''}\n${(analysis.keyProducts as string[])?.length ? `PRODUCTS: ${(analysis.keyProducts as string[]).join(', ')}` : ''}`,
+        { temperature: 0.7, maxTokens: 512 }
+      );
+      siteContent = parseJsonResponse(siteResult) as typeof siteContent;
+      console.log('[v2] Step 2 done:', siteContent.brandName);
+    } catch (err) {
+      console.error('[v2] Step 2 failed:', (err as Error).message);
+      const ctas = getNicheCtas(niche);
+      siteContent = {
+        brandName: (analysis.businessName as string) || niche,
+        tagline: (analysis.tagline as string) || `${niche} — Excellence.`,
+        description: description || `${(analysis.businessName as string) || niche} is a leading ${niche}.`,
+        ctaPrimary: ctas.primary,
+        ctaSecondary: ctas.secondary,
+      };
+    }
 
-    // Step 2: Generate content with CONDENSED template structure
-    const condensedStructure = extractStructure(templateDef.defaultContent);
+    // ── STEP 3: Generate each section individually ──
+    const sectionTemplates = extractSections(templateDef.defaultContent);
+    const generatedSections: Record<string, unknown> = {};
 
-    const uspVal = (analysis.uniqueSellingPoint as string) || '';
-    const productsVal = (analysis.keyProducts as string[]) || [];
-
-    const contentUserMessage = `BUSINESS: ${analysis.businessName}
-NICHE: ${niche}
-SUB-NICHE: ${analysis.subNiche}
-TONE: ${analysis.tone}
-DESCRIPTION: ${description}
-${uspVal ? `USP: ${uspVal}` : ''}
-${productsVal.length ? `PRODUCTS: ${productsVal.join(', ')}` : ''}
-
-TEMPLATE: ${templateDef.metadata.name}
-SECTIONS: ${templateDef.metadata.sections.join(', ')}
-
-TEMPLATE STRUCTURE (field names and types — replace ALL text values):
-${JSON.stringify(condensedStructure)}
-
-Generate content for EVERY section above. Use niche-specific language for ${niche}.`;
-
-    const contentResult = await callGroq(
-      CONTENT_GENERATION_PROMPT,
-      contentUserMessage,
-      { temperature: 0.8, maxTokens: 4096 }
-    ).catch((err: Error) => {
-      console.error('[v2] Content error:', err.message);
-      return null;
-    });
-
-    let content: Record<string, unknown>;
-    if (contentResult) {
+    for (const [sectionId, fieldMap] of Object.entries(sectionTemplates)) {
       try {
-        content = parseJsonResponse(contentResult);
-        if (!content.site || !content.sections) {
-          console.error('[v2] Content missing site/sections, using smart fallback');
-          content = buildSmartFallback(analysis, description, niche, templateDef);
-        }
+        const sectionResult = await callAI(
+          sectionPrompt(sectionId, fieldMap),
+          `BUSINESS: ${siteContent.brandName}\nNICHE: ${niche}\nSUB-NICHE: ${analysis.subNiche}\nDESCRIPTION: ${description}\nTONE: ${analysis.tone}\n${analysis.uniqueSellingPoint ? `USP: ${analysis.uniqueSellingPoint}` : ''}\n${(analysis.keyProducts as string[])?.length ? `PRODUCTS: ${(analysis.keyProducts as string[]).join(', ')}` : ''}`,
+          { temperature: 0.8, maxTokens: 1024 }
+        );
+        generatedSections[sectionId] = parseJsonResponse(sectionResult);
+        console.log(`[v2] Section "${sectionId}" done`);
       } catch (err) {
-        console.error('[v2] Content parse error:', err);
-        content = buildSmartFallback(analysis, description, niche, templateDef);
+        console.error(`[v2] Section "${sectionId}" failed:`, (err as Error).message);
+        // Keep template default for this section
+        generatedSections[sectionId] = (templateDef.defaultContent as Record<string, unknown>).sections?.[sectionId] || {};
       }
-    } else {
-      console.log('[v2] Using smart fallback for content');
-      content = buildSmartFallback(analysis, description, niche, templateDef);
     }
 
-    console.log('[v2] Content sections:', Object.keys((content.sections as Record<string, unknown>) || {}));
-
-    // Step 3: Images
-    const images = await fetchNicheImages(
-      niche,
-      description,
-      templateDef.metadata.sections
-    ).catch((err: Error) => {
+    // ── STEP 4: Images ──
+    const images = await fetchNicheImages(niche, description, templateDef.metadata.sections).catch((err) => {
       console.error('[v2] Image error:', err.message);
       return {} as Record<string, string>;
     });
 
-    console.log('[v2] Images:', Object.keys(images).length);
+    console.log('[v2] Done. Sections:', Object.keys(generatedSections));
 
     const finalConfig = {
-      ...(content as Record<string, unknown>),
+      site: siteContent,
+      sections: generatedSections,
       theme: palette.theme,
       imagePrompts: images,
       niche,
@@ -297,21 +325,4 @@ Generate content for EVERY section above. Use niche-specific language for ${nich
     console.error('[v2] Fatal error:', err);
     return res.status(500).json({ error: 'Generation failed' });
   }
-}
-
-function buildFallbackAnalysis(niche: string, description: string): Record<string, unknown> {
-  // Try to extract a name from the description
-  const words = description.split(/\s+/);
-  const nameGuess = words.find((w: string) => w.charAt(0) === w.charAt(0).toUpperCase() && w.length > 3 && !['The', 'This', 'That', 'What', 'When', 'Where', 'With', 'From'].includes(w)) || niche.split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-
-  return {
-    businessName: nameGuess,
-    tagline: `${nameGuess} — Trusted ${niche.charAt(0).toUpperCase() + niche.slice(1)}.`,
-    tone: 'professional',
-    keywords: [niche, 'professional', 'quality', 'service', 'best'],
-    subNiche: niche,
-    audience: `Clients seeking professional ${niche} services`,
-    uniqueSellingPoint: description.slice(0, 150),
-    keyProducts: [],
-  };
 }

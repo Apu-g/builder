@@ -209,6 +209,81 @@ const NICHE_IMAGES: Record<string, NicheImageSet> = {
       'https://images.unsplash.com/photo-1542038784456-1ea8e935640e?w=600&h=400&fit=crop&q=80',
     ],
   },
+  'law firm': {
+    hero: [
+      'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=1200&h=800&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=1200&h=800&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1521791136064-7986c2920216?w=1200&h=800&fit=crop&q=80',
+    ],
+    services: [
+      'https://images.unsplash.com/photo-1589994965851-a8f479c573a9?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1505664194779-8beaceb93744?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=600&h=400&fit=crop&q=80',
+    ],
+    about: ['https://images.unsplash.com/photo-1479142506502-19b3a3b7ff33?w=800&h=600&fit=crop&q=80'],
+    team: [
+      'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=300&h=300&fit=crop&crop=face',
+      'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&h=300&fit=crop&crop=face',
+      'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=300&h=300&fit=crop&crop=face',
+    ],
+    general: [
+      'https://images.unsplash.com/photo-1521791136064-7986c2920216?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1589994965851-a8f479c573a9?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=600&h=400&fit=crop&q=80',
+    ],
+  },
+  'medical': {
+    hero: [
+      'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=1200&h=800&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1538108149393-fbbd81895907?w=1200&h=800&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=1200&h=800&fit=crop&q=80',
+    ],
+    services: [
+      'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1559757175-5700dde675bc?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1551076805-e1869033e561?w=600&h=400&fit=crop&q=80',
+    ],
+    about: ['https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=800&h=600&fit=crop&q=80'],
+    team: [
+      'https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=300&h=300&fit=crop&crop=face',
+      'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=300&h=300&fit=crop&crop=face',
+      'https://images.unsplash.com/photo-1594824476967-48c8b964ac31?w=300&h=300&fit=crop&crop=face',
+    ],
+    general: [
+      'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1538108149393-fbbd81895907?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1551076805-e1869033e561?w=600&h=400&fit=crop&q=80',
+    ],
+  },
+  'default': {
+    hero: [
+      'https://images.unsplash.com/photo-1497366216548-37526070297c?w=1200&h=800&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1497366811353-6870744d04b2?w=1200&h=800&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1497215842964-222b430dc094?w=1200&h=800&fit=crop&q=80',
+    ],
+    services: [
+      'https://images.unsplash.com/photo-1552664730-d307ca884978?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1553028826-f4804a6dba3b?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1542744173-8e7e53415bb0?w=600&h=400&fit=crop&q=80',
+    ],
+    about: ['https://images.unsplash.com/photo-1497215842964-222b430dc094?w=800&h=600&fit=crop&q=80'],
+    team: [
+      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&h=300&fit=crop&crop=face',
+      'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300&h=300&fit=crop&crop=face',
+      'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=300&h=300&fit=crop&crop=face',
+    ],
+    general: [
+      'https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1552664730-d307ca884978?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=600&h=400&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1542744173-8e7e53415bb0?w=600&h=400&fit=crop&q=80',
+    ],
+  },
 };
 
 function pick(arr: string[], index: number): string {
@@ -295,10 +370,12 @@ function findNicheKey(niche: string): string {
     'interior design': ['interior', 'decor', 'furnishing', 'design studio'],
     'fashion brand': ['fashion', 'clothing', 'apparel', 'wear', 'boutique'],
     'photography studio': ['photo', 'photography', 'camera', 'portrait', 'shoot'],
+    'law firm': ['law', 'legal', 'attorney', 'lawyer', 'litigation', 'advocate'],
+    'medical': ['medical', 'health', 'clinic', 'doctor', 'hospital', 'dental'],
   };
 
   for (const [key, keywords] of Object.entries(nicheKeywords)) {
     if (keywords.some((kw) => lower.includes(kw))) return key;
   }
-  return 'coffee shop';
+  return 'default';
 }
