@@ -41,20 +41,19 @@ Return ONLY the JSON.`;
 // ============================================================
 function sectionPrompt(sectionId: string, fieldTypeMap: Record<string, string>): string {
   const fields = Object.entries(fieldTypeMap)
-    .map(([k, v]) => `  "${k}": "${v}"`)
-    .join('\n');
+    .map(([k, v]) => `  "${k}": ${v === 'object[]' ? '[{...}]' : v === 'string[]' ? '["..."]' : '"..."'}`)
+    .join(',\n');
 
-  return `Generate the "${sectionId}" section content for a website. Return ONLY valid JSON:
+  return `Generate the "${sectionId}" section for a website. Return ONLY valid JSON matching this shape:
 {
 ${fields}
 }
-Rules:
-- Each text field must be real, niche-specific content (no placeholders)
-- If a field says "string[]" it needs an array of strings
-- If a field says "string" it needs a single string
-- IDs should be short slugs
-- Content should be authentic and professional
-Return ONLY the JSON.`;
+
+CRITICAL:
+- Return ONLY the JSON object. No markdown, no code fences, no explanation.
+- Arrays must be complete with closing brackets.
+- Every field must have a value.
+- Do NOT truncate. Close all brackets.`;
 }
 
 // ============================================================
@@ -95,8 +94,16 @@ function extractFieldMap(obj: unknown, prefix = ''): Record<string, string> {
 
 function extractSections(obj: unknown): Record<string, Record<string, string>> {
   const result: Record<string, Record<string, string>> = {};
-  if (typeof obj !== 'object' || obj === null) return result;
-  for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
+  // Navigate into the "sections" key if present (template structure is {site, sections})
+  let sectionsObj = obj;
+  if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
+    const maybeSections = (obj as Record<string, unknown>).sections;
+    if (maybeSections && typeof maybeSections === 'object' && !Array.isArray(maybeSections)) {
+      sectionsObj = maybeSections;
+    }
+  }
+  if (typeof sectionsObj !== 'object' || sectionsObj === null) return result;
+  for (const [key, val] of Object.entries(sectionsObj as Record<string, unknown>)) {
     if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
       result[key] = extractFieldMap(val);
     }
@@ -287,20 +294,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // ── STEP 3: Generate each section individually ──
     const sectionTemplates = extractSections(templateDef.defaultContent);
     const generatedSections: Record<string, unknown> = {};
+    const userContext = `BUSINESS: ${siteContent.brandName}\nNICHE: ${niche}\nSUB-NICHE: ${analysis.subNiche}\nDESCRIPTION: ${description}\nTONE: ${analysis.tone}\n${analysis.uniqueSellingPoint ? `USP: ${analysis.uniqueSellingPoint}` : ''}\n${(analysis.keyProducts as string[])?.length ? `PRODUCTS: ${(analysis.keyProducts as string[]).join(', ')}` : ''}`;
 
     for (const [sectionId, fieldMap] of Object.entries(sectionTemplates)) {
-      try {
-        const sectionResult = await callAI(
-          sectionPrompt(sectionId, fieldMap),
-          `BUSINESS: ${siteContent.brandName}\nNICHE: ${niche}\nSUB-NICHE: ${analysis.subNiche}\nDESCRIPTION: ${description}\nTONE: ${analysis.tone}\n${analysis.uniqueSellingPoint ? `USP: ${analysis.uniqueSellingPoint}` : ''}\n${(analysis.keyProducts as string[])?.length ? `PRODUCTS: ${(analysis.keyProducts as string[]).join(', ')}` : ''}`,
-          { temperature: 0.8, maxTokens: 1024 }
-        );
-        generatedSections[sectionId] = parseJsonResponse(sectionResult);
-        console.log(`[v2] Section "${sectionId}" done`);
-      } catch (err) {
-        console.error(`[v2] Section "${sectionId}" failed:`, (err as Error).message);
-        // Keep template default for this section
-        generatedSections[sectionId] = (templateDef.defaultContent as Record<string, unknown>).sections?.[sectionId] || {};
+      let parsed = false;
+      for (let attempt = 0; attempt < 3 && !parsed; attempt++) {
+        try {
+          const sectionResult = await callAI(
+            sectionPrompt(sectionId, fieldMap),
+            userContext + (attempt > 0 ? '\n\nIMPORTANT: Return COMPLETE valid JSON. Close all brackets. Do not truncate.' : ''),
+            { temperature: 0.8, maxTokens: 1024 }
+          );
+          generatedSections[sectionId] = parseJsonResponse(sectionResult);
+          console.log(`[v2] Section "${sectionId}" done (attempt ${attempt + 1})`);
+          parsed = true;
+        } catch (err) {
+          console.warn(`[v2] Section "${sectionId}" attempt ${attempt + 1} failed:`, (err as Error).message);
+          if (attempt === 2) {
+            generatedSections[sectionId] = (templateDef.defaultContent as Record<string, unknown>).sections?.[sectionId] || {};
+            console.log(`[v2] Section "${sectionId}" using template default`);
+          }
+        }
       }
     }
 

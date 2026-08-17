@@ -1,4 +1,4 @@
-const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
+﻿const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
 const GROQ_MODEL = 'openai/gpt-oss-20b';
 
 export async function callGroq(
@@ -39,25 +39,44 @@ export async function callGroq(
   return data.choices[0].message.content;
 }
 
+function repairJson(s: string): string {
+  let open = 0;
+  for (const ch of s) {
+    if (ch === '{' || ch === '[') open++;
+    if (ch === '}' || ch === ']') open--;
+  }
+  while (open > 0) {
+    const last = s[s.length - 1];
+    if (last === ',') {
+      s = s.slice(0, -1);
+    } else {
+      s += last === '{' ? '}' : ']';
+    }
+    open--;
+  }
+  return s;
+}
+
 export function parseJsonResponse(text: string): Record<string, unknown> {
   let cleaned = text.trim();
-
   if (cleaned.startsWith('<')) {
     const thinkEnd = cleaned.indexOf('</think>');
     if (thinkEnd !== -1) {
       cleaned = cleaned.substring(thinkEnd + 8).trim();
     }
   }
-
   if (cleaned.startsWith('```')) {
-    cleaned = cleaned
-      .replace(/^```(?:json)?\s*\n?/, '')
-      .replace(/\n?```\s*$/, '');
+    cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
   }
   const firstBrace = cleaned.indexOf('{');
   const lastBrace = cleaned.lastIndexOf('}');
   if (firstBrace !== -1 && lastBrace > firstBrace) {
     cleaned = cleaned.substring(firstBrace, lastBrace + 1);
   }
-  return JSON.parse(cleaned);
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const repaired = repairJson(cleaned);
+    return JSON.parse(repaired);
+  }
 }
