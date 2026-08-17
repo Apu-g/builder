@@ -6,81 +6,78 @@ import { getAllTemplates } from '../../src/templates/index.js';
 
 export const generateRouter = Router();
 
-const ANALYSIS_PROMPT = `You are an expert business analyst and brand strategist. You deeply analyze businesses and extract rich, actionable information.
+const ANALYSIS_PROMPT = `You are an expert business analyst. Extract business details from a user's description.
 
-Given a user's description of their business, extract EVERYTHING you can infer. Be specific and detailed — not generic.
+The user will provide a NICHE (industry category) and a DESCRIPTION of their business.
+
+CRITICAL: The NICHE field tells you the industry (e.g., "law firm", "coffee shop", "gym"). Always use the NICHE as the primary industry indicator. The DESCRIPTION adds details about that specific business.
 
 Return ONLY valid JSON:
 {
-  "businessName": "exact business name from description, or a creative one if not provided",
-  "tagline": "punchy 3-8 word tagline that captures their unique value",
-  "tone": "one of: professional, casual, luxury, playful, minimal, bold",
-  "voice": "describe the brand voice in one sentence (e.g., warm and inviting, sleek and modern, raw and energetic)",
-  "keywords": ["specific1", "specific2", "specific3", "specific4", "specific5"],
-  "subNiche": "very specific sub-niche (e.g., 'third-wave specialty coffee' not just 'coffee shop')",
-  "audience": "specific target customer with age range and interests",
-  "uniqueSellingPoint": "what genuinely makes this business different from competitors",
-  "location": "city/area if mentioned, null if not",
-  "founded": "year if mentioned, null if not",
-  "keyProducts": ["product1", "product2", "product3"],
-  "brandAdjectives": ["adjective1", "adjective2", "adjective3"],
-  "competitorTone": "how they position vs competitors (e.g., premium vs accessible, traditional vs modern)"
+  "businessName": "exact name if given, or create one fitting the niche",
+  "tagline": "punchy 3-8 word tagline",
+  "tone": "professional|casual|luxury|playful|minimal|bold",
+  "keywords": ["k1","k2","k3","k4","k5"],
+  "subNiche": "specific sub-niche within the industry",
+  "audience": "target customer description",
+  "uniqueSellingPoint": "what makes this business special",
+  "keyProducts": ["product1","product2","product3"]
 }
 
 RULES:
-- Extract the EXACT business name from description if given
-- Be specific about the niche — "specialty pour-over coffee" not "coffee"
-- The tagline must be catchy and specific to THIS business
-- Keywords should be things a customer would search for
-- brandAdjectives should capture the visual/personality feel
-- Return ONLY the JSON, nothing else`;
+- The NICHE is the INDUSTRY. If niche="law firm", this is a LAW FIRM regardless of what else the description says.
+- If niche="coffee shop", this is a COFFEE SHOP.
+- Extract the exact business name from description if given
+- Keywords should be niche-specific search terms
+- Return ONLY the JSON`;
 
-const CONTENT_GENERATION_PROMPT = `You are an elite web copywriter and content strategist who has written for hundreds of top agencies. You create content that feels REAL — written by the business owner, not a robot.
+const CONTENT_GENERATION_PROMPT = `You are an elite web copywriter. Generate website content for a SPECIFIC business in a SPECIFIC niche.
 
-CRITICAL RULES — VIOLATION = FAILURE:
-1. You MUST use the EXACT field names from the template's default content. Copy them precisely.
-2. You MUST preserve the EXACT same data types (strings stay strings, arrays stay arrays, numbers stay numbers).
-3. Every single text field MUST contain NEW, original content. NEVER copy the template defaults.
-4. Content must be deeply specific to THIS business — mention their actual products, location, services by name.
-5. IDs for list items should be short slugs (e.g., "espresso-blend", "yoga-flow", "portfolio-1").
-6. Return ONLY valid JSON. No markdown, no code fences, no explanation, no trailing commas.
+OUTPUT: Return ONLY valid JSON with "site" and "sections" keys. No markdown, no code fences.
 
-YOUR PROCESS:
-1. Read the template's default content JSON structure carefully
-2. For EVERY field in every section, write completely new content that matches THIS business
-3. Match the EXACT same keys and nesting structure
-4. Ensure all arrays have the same number of items as the template defaults
-5. Return the complete JSON with both "site" and "sections" keys
-
-OUTPUT FORMAT:
+The JSON structure MUST be:
 {
   "site": {
     "brandName": "Business Name",
-    "tagline": "Compelling tagline",
-    "description": "2-3 sentence rich description of the business, mentioning specific services/location/philosophy",
-    "ctaPrimary": "Action-oriented button text (e.g., 'Book a Table', 'Start Training', 'View Our Work')",
-    "ctaSecondary": "Secondary action text (e.g., 'See the Menu', 'Our Story', 'Get a Quote')"
+    "tagline": "Tagline",
+    "description": "2-3 sentences about the business",
+    "ctaPrimary": "Action button text",
+    "ctaSecondary": "Secondary button text"
   },
   "sections": {
-    // EXACT same section IDs and field names as the template default content
-    // Every text field replaced with niche-specific content
+    // Match the section IDs from the template structure provided
+    // Each section has an "id" and content fields
   }
 }
 
-CTA BUTTON RULES:
-- ctaPrimary and ctaSecondary MUST be different from each other
-- They MUST be action verbs specific to the niche
-- Examples by niche:
-  - Restaurant: "Reserve a Table" / "View Menu"
-  - Gym: "Start Free Trial" / "See Programs"
-  - Photography: "Book a Session" / "View Portfolio"
-  - Architecture: "Start Your Project" / "See Our Work"
-  - Coffee: "Order Now" / "Our Menu"
-  - AI Startup: "Get Early Access" / "See How It Works"
-  - Interior Design: "Book Consultation" / "View Projects"
-  - Fashion: "Shop Collection" / "Our Story"`;
+CRITICAL RULES:
+1. Every text field must be NEW content specific to THIS business and THIS niche
+2. Match the section IDs and field names from the template structure exactly
+3. CTAs must be niche-specific verbs (not generic "Get Started")
+4. Content must reference the business's actual niche, services, and offerings
+5. NEVER use placeholder text or lorem ipsum`;
 
 const EDIT_SYSTEM_PROMPT = `You are a senior web designer. You receive an existing website configuration and a change request. Return a JSON object with ONLY the fields that need to change. The frontend will merge your changes. Return ONLY valid JSON. Never remove sections.`;
+
+function extractStructure(obj: unknown, depth = 0): unknown {
+  if (depth > 4) return '...';
+  if (obj === null || obj === undefined) return null;
+  if (typeof obj === 'string') return 'string';
+  if (typeof obj === 'number') return 'number';
+  if (typeof obj === 'boolean') return 'boolean';
+  if (Array.isArray(obj)) {
+    if (obj.length === 0) return [];
+    return [extractStructure(obj[0], depth + 1)];
+  }
+  if (typeof obj === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
+      result[key] = extractStructure(val, depth + 1);
+    }
+    return result;
+  }
+  return obj;
+}
 
 function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
   const result = { ...target };
@@ -99,6 +96,111 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   return result;
 }
 
+const NICHE_CTAS: Record<string, { primary: string; secondary: string }> = {
+  'law firm': { primary: 'Schedule Consultation', secondary: 'Our Practice Areas' },
+  'coffee shop': { primary: 'Order Now', secondary: 'View Menu' },
+  'restaurant': { primary: 'Reserve a Table', secondary: 'View Menu' },
+  'gym': { primary: 'Start Free Trial', secondary: 'See Programs' },
+  'photography': { primary: 'Book a Session', secondary: 'View Portfolio' },
+  'architecture': { primary: 'Start Your Project', secondary: 'See Our Work' },
+  'ai startup': { primary: 'Get Early Access', secondary: 'See How It Works' },
+  'interior design': { primary: 'Book Consultation', secondary: 'View Projects' },
+  'fashion': { primary: 'Shop Collection', secondary: 'Our Story' },
+  'default': { primary: 'Get Started', secondary: 'Learn More' },
+};
+
+function getNicheCtas(niche: string): { primary: string; secondary: string } {
+  const lower = niche.toLowerCase();
+  for (const [key, ctas] of Object.entries(NICHE_CTAS)) {
+    if (lower.includes(key)) return ctas;
+  }
+  return NICHE_CTAS.default;
+}
+
+function buildFallbackAnalysis(niche: string, description: string): Record<string, unknown> {
+  const words = description.split(/\s+/);
+  const nameGuess = words.find((w: string) => w.charAt(0) === w.charAt(0).toUpperCase() && w.length > 3 && !['The', 'This', 'That', 'What', 'When', 'Where', 'With', 'From'].includes(w)) || niche.split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  return {
+    businessName: nameGuess,
+    tagline: `${nameGuess} — Trusted ${niche.charAt(0).toUpperCase() + niche.slice(1)}.`,
+    tone: 'professional',
+    keywords: [niche, 'professional', 'quality', 'service', 'best'],
+    subNiche: niche,
+    audience: `Clients seeking professional ${niche} services`,
+    uniqueSellingPoint: description.slice(0, 150),
+    keyProducts: [],
+  };
+}
+
+function generateFieldContent(fieldName: string, niche: string, subNiche: string, brandName: string, products: string[]): string {
+  const lower = fieldName.toLowerCase();
+  if (lower === 'title' || lower === 'heading') return `${brandName} — Your Trusted ${subNiche}`;
+  if (lower === 'subtitle') return `Delivering exceptional ${niche} services with passion and precision.`;
+  if (lower === 'description' || lower === 'text' || lower === 'content') {
+    return `At ${brandName}, we specialize in ${subNiche}. Our team is dedicated to providing the highest quality ${niche} experience. ${products.length > 0 ? `From ${products.slice(0, 2).join(' to ')}, we deliver excellence.` : 'We bring expertise and passion to everything we do.'}`;
+  }
+  if (lower === 'name') return brandName;
+  if (lower === 'bio') return `A passionate ${niche} professional with years of experience in ${subNiche}.`;
+  if (lower === 'label') return subNiche;
+  if (lower.includes('feature')) return `Professional ${niche} services`;
+  if (lower.includes('service')) return `Our ${subNiche} expertise`;
+  if (lower.includes('stat') && lower.includes('label')) return `Years of Experience`;
+  if (lower.includes('stat') || lower.includes('number')) return `${Math.floor(Math.random() * 20) + 5}+`;
+  return `${brandName} — ${subNiche}`;
+}
+
+function buildSmartFallback(
+  analysis: Record<string, unknown>,
+  description: string,
+  niche: string,
+  templateDef: { defaultContent: Record<string, unknown>; metadata: { sections: string[] } }
+): Record<string, unknown> {
+  const brandName = (analysis.businessName as string) || niche.split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  const tagline = (analysis.tagline as string) || `${brandName} — Excellence Since Day One.`;
+  const subNiche = (analysis.subNiche as string) || niche;
+  const usp = (analysis.uniqueSellingPoint as string) || '';
+  const products = (analysis.keyProducts as string[]) || [];
+  const ctas = getNicheCtas(niche);
+
+  const site = {
+    brandName,
+    tagline,
+    description: description || `${brandName} is a trusted ${subNiche} delivering exceptional quality and service. ${usp ? `What sets us apart: ${usp}.` : ''}`,
+    ctaPrimary: ctas.primary,
+    ctaSecondary: ctas.secondary,
+  };
+
+  const sections = JSON.parse(JSON.stringify(templateDef.defaultContent.sections || {})) as Record<string, unknown>;
+
+  function fillSection(obj: Record<string, unknown>) {
+    for (const [key, val] of Object.entries(obj)) {
+      if (typeof val === 'string') {
+        const lower = val.toLowerCase();
+        if (lower.includes('lorem') || lower.includes('placeholder') || lower.includes('default') || lower.includes('sample') || lower.includes('your ')) {
+          obj[key] = generateFieldContent(key, niche, subNiche, brandName, products);
+        }
+        if ((lower.includes('roast') || lower.includes('brew') || lower.includes('espresso')) && !niche.toLowerCase().includes('coffee')) {
+          obj[key] = generateFieldContent(key, niche, subNiche, brandName, products);
+        }
+      } else if (Array.isArray(val)) {
+        val.forEach((item) => {
+          if (typeof item === 'object' && item !== null) fillSection(item as Record<string, unknown>);
+        });
+      } else if (typeof val === 'object' && val !== null) {
+        fillSection(val as Record<string, unknown>);
+      }
+    }
+  }
+
+  for (const [, sectionData] of Object.entries(sections)) {
+    if (typeof sectionData === 'object' && sectionData !== null) {
+      fillSection(sectionData as Record<string, unknown>);
+    }
+  }
+
+  return { site, sections };
+}
+
 generateRouter.post('/generate-site-v2', async (req: Request, res: Response) => {
   try {
     const { templateId, niche, palette, description, additionalInstructions } = req.body;
@@ -112,13 +214,14 @@ generateRouter.post('/generate-site-v2', async (req: Request, res: Response) => 
 
     console.log(`[v2] Generating for niche="${niche}", template="${templateId}"`);
 
+    // Step 1: Analysis
     const analysisResult = await callGroq(
       ANALYSIS_PROMPT,
-      `Business niche: ${niche}
-User description: ${description}
-${additionalInstructions ? `Additional instructions: ${additionalInstructions}` : ''}
-Color palette selected: ${palette.name}`,
-      { temperature: 0.7, maxTokens: 1024 }
+      `NICHE: ${niche}
+DESCRIPTION: ${description}
+${additionalInstructions ? `ADDITIONAL: ${additionalInstructions}` : ''}
+COLOR PALETTE: ${palette.name}`,
+      { temperature: 0.7, maxTokens: 512 }
     ).catch((err) => {
       console.error('[v2] Analysis error:', err.message);
       return null;
@@ -137,40 +240,32 @@ Color palette selected: ${palette.name}`,
 
     console.log('[v2] Analysis:', analysis.businessName, '|', analysis.subNiche);
 
-    const templateStructure = JSON.stringify(templateDef.defaultContent, null, 2);
+    // Step 2: Content with condensed structure
+    const condensedStructure = extractStructure(templateDef.defaultContent);
 
-    const contentUserMessage = `=== BUSINESS ANALYSIS ===
-${JSON.stringify(analysis, null, 2)}
+    const uspVal = (analysis.uniqueSellingPoint as string) || '';
+    const productsVal = (analysis.keyProducts as string[]) || [];
 
-=== TEMPLATE TO FILL ===
-Name: ${templateDef.metadata.name}
-Category: ${templateDef.metadata.category}
-Sections to generate: ${templateDef.metadata.sections.join(', ')}
+    const contentUserMessage = `BUSINESS: ${analysis.businessName}
+NICHE: ${niche}
+SUB-NICHE: ${analysis.subNiche}
+TONE: ${analysis.tone}
+DESCRIPTION: ${description}
+${uspVal ? `USP: ${uspVal}` : ''}
+${productsVal.length ? `PRODUCTS: ${productsVal.join(', ')}` : ''}
 
-=== TEMPLATE'S DEFAULT CONTENT (use as STRUCTURE REFERENCE ONLY — replace ALL text) ===
-${templateStructure}
+TEMPLATE: ${templateDef.metadata.name}
+SECTIONS: ${templateDef.metadata.sections.join(', ')}
 
-=== USER'S ORIGINAL DESCRIPTION ===
-${description}
+TEMPLATE STRUCTURE (field names and types — replace ALL text values):
+${JSON.stringify(condensedStructure)}
 
-=== COLOR PALETTE ===
-${palette.name} — Background: ${palette.theme.background}, Foreground: ${palette.theme.foreground}, Accent: ${palette.theme.accent}
-
-=== INSTRUCTIONS ===
-Generate COMPLETE website content for the "${templateDef.metadata.name}" template.
-- Read the template structure above and match it EXACTLY
-- Replace EVERY text field with content specific to "${analysis.businessName || niche}"
-- Use the business details from the analysis above
-- Make CTAs specific to the ${niche} niche
-- Every sentence should reference THIS business's actual offerings
-- Do NOT use placeholder text or generic descriptions
-- Generate unique content for EACH section — they should all feel different
-- Keep the same JSON structure, just replace the content`;
+Generate content for EVERY section above. Use niche-specific language for ${niche}.`;
 
     const contentResult = await callGroq(
       CONTENT_GENERATION_PROMPT,
       contentUserMessage,
-      { temperature: 0.8, maxTokens: 8192 }
+      { temperature: 0.8, maxTokens: 4096 }
     ).catch((err) => {
       console.error('[v2] Content error:', err.message);
       return null;
@@ -181,86 +276,37 @@ Generate COMPLETE website content for the "${templateDef.metadata.name}" templat
       try {
         content = parseJsonResponse(contentResult);
         if (!content.site || !content.sections) {
-          console.error('[v2] Content missing site/sections keys, using fallback');
-          content = buildFallbackContent(analysis, description, templateDef);
+          content = buildSmartFallback(analysis, description, niche, templateDef);
         }
-      } catch (err) {
-        console.error('[v2] Content parse error:', err);
-        content = buildFallbackContent(analysis, description, templateDef);
+      } catch {
+        content = buildSmartFallback(analysis, description, niche, templateDef);
       }
     } else {
-      content = buildFallbackContent(analysis, description, templateDef);
+      console.log('[v2] Using smart fallback');
+      content = buildSmartFallback(analysis, description, niche, templateDef);
     }
 
-    console.log('[v2] Content generated with sections:', Object.keys((content.sections as Record<string, unknown>) || {}));
+    console.log('[v2] Content sections:', Object.keys((content.sections as Record<string, unknown>) || {}));
 
-    const images = await fetchNicheImages(
-      niche,
-      description,
-      templateDef.metadata.sections
-    ).catch((err) => {
+    // Step 3: Images
+    const images = await fetchNicheImages(niche, description, templateDef.metadata.sections).catch((err) => {
       console.error('[v2] Image error:', err.message);
       return {} as Record<string, string>;
     });
 
-    console.log('[v2] Images:', Object.keys(images).length, 'images for', niche);
-
-    const siteConfig = content as Record<string, unknown>;
     const finalConfig = {
-      ...siteConfig,
+      ...(content as Record<string, unknown>),
       theme: palette.theme,
       imagePrompts: images,
       niche,
     };
 
-    console.log('[v2] Generation complete');
     res.json(finalConfig);
   } catch (err) {
     console.error('[v2] Fatal error:', err);
     res.status(500).json({ error: 'Generation failed' });
   }
 });
-
-function buildFallbackAnalysis(niche: string, description: string): Record<string, unknown> {
-  const words = description.split(' ');
-  const nameGuess = words.find((w: string) => w.charAt(0) === w.charAt(0).toUpperCase() && w.length > 3) || niche.split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-  return {
-    businessName: nameGuess,
-    tagline: `${niche.charAt(0).toUpperCase() + niche.slice(1)} — crafted with passion.`,
-    tone: 'professional',
-    voice: 'Professional and welcoming',
-    keywords: [niche, 'quality', 'professional', 'service', 'best'],
-    subNiche: niche,
-    audience: 'Local customers seeking quality ' + niche + ' services',
-    uniqueSellingPoint: description.slice(0, 100),
-    location: null,
-    founded: null,
-    keyProducts: [],
-    brandAdjectives: ['quality', 'professional', 'modern'],
-    competitorTone: 'premium',
-  };
-}
-
-function buildFallbackContent(
-  analysis: Record<string, unknown>,
-  description: string,
-  templateDef: { defaultContent: Record<string, unknown>; metadata: { sections: string[] } }
-): Record<string, unknown> {
-  const brandName = (analysis.businessName as string) || 'Business';
-  const tagline = (analysis.tagline as string) || 'Quality you can trust.';
-  const subNiche = (analysis.subNiche as string) || 'business';
-
-  return {
-    site: {
-      brandName,
-      tagline,
-      description: description || `${brandName} is a leading ${subNiche} dedicated to excellence.`,
-      ctaPrimary: 'Get Started',
-      ctaSecondary: 'Learn More',
-    },
-    sections: templateDef.defaultContent.sections || {},
-  };
-}
 
 generateRouter.post('/generate-site', async (req: Request, res: Response) => {
   try {
@@ -274,9 +320,7 @@ generateRouter.post('/generate-site', async (req: Request, res: Response) => {
     }
 
     const userMessage = `Template: ${templateDef.metadata.name} (${templateDef.metadata.category})
-Description: ${templateDef.metadata.description}
 Sections: ${templateDef.metadata.sections.join(', ')}
-Current theme: ${JSON.stringify(templateDef.metadata.theme)}
 Current default content: ${JSON.stringify(templateDef.defaultContent, null, 2)}
 
 User requirements:
